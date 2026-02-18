@@ -1,0 +1,13 @@
+#!/bin/bash
+# Prevent pushing from Windows git clients.
+# This repo uses git-crypt, which requires WSL for correct filter execution.
+
+if [ -z "$WSL_DISTRO_NAME" ]; then
+    echo ""
+    echo "ERROR: Push blocked — not running in WSL."
+    echo "This repo uses git-crypt. Always push from your WSL terminal."
+    echo ""
+    exit 1
+fi
+
+exit 0
