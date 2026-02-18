@@ -1,2 +1,1 @@
-.github/copilot-instructions.md filter=git-crypt diff=git-crypt
-.github/git-crypt-setup.md filter=git-crypt diff=git-crypt
+.github/** filter=git-crypt diff=git-crypt
