@@ -4,6 +4,8 @@
   "description": "A browser extension providing local, private speech-to-text via Vosk WASM. All recognition runs client-side — no audio ever leaves the device.",
   "main": "background.js",
   "scripts": {
+    "build": "node esbuild.config.js && node scripts/copy-to-dist.js",
+    "build:watch": "node esbuild.config.js --watch",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "repository": {
@@ -13,7 +15,7 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "commonjs",
+  "type": "module",
   "bugs": {
     "url": "https://github.com/mhart1000/secure-speech/issues"
   },
