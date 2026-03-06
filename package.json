@@ -20,9 +20,6 @@
     "url": "https://github.com/mhart1000/secure-speech/issues"
   },
   "homepage": "https://github.com/mhart1000/secure-speech#readme",
-  "dependencies": {
-    "vosk-browser": "^0.0.8"
-  },
   "devDependencies": {
     "esbuild": "^0.27.3"
   }
