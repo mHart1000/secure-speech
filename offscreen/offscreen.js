@@ -1,12 +1,11 @@
-// Offscreen document — runs Vosk recognition and audio capture
-// This needs a DOM context because AudioWorklet and Vosk WASM cannot run in a service worker.
+// Offscreen document — runs speech recognition and audio capture
+// This needs a DOM context because AudioWorklet and WASM audio processing cannot run in a service worker.
 
-import * as Vosk from 'vosk-browser'
+import { WhisperSpeechEngine } from './whisper-engine.js'
 
 // ── State ──────────────────────────────────────────────────────────────────────
 
-let model = null
-let recognizer = null
+let speechEngine = null
 let audioContext = null
 let sourceNode = null
 let workletNode = null
@@ -36,14 +35,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 })
 
-// ── Model / worklet setup ──────────────────────────────────────────────────────
+// ── Engine / worklet setup ─────────────────────────────────────────────────────
 
-async function ensureModel() {
-  if (model) return
-  // Model bundled with the extension under models/
-  const modelUrl = chrome.runtime.getURL('models/vosk-model-small-en-us-0.15.tar.gz')
-  emit('status', { state: 'downloading_model' })
-  model = await Vosk.createModel(modelUrl)
+async function ensureSpeechEngine() {
+  if (speechEngine) return
+
+  const modelUrl = chrome.runtime.getURL('models/whisper/ggml-base.en.bin')
+  speechEngine = new WhisperSpeechEngine({
+    sampleRate: SAMPLE_RATE,
+    modelUrl,
+    callbacks: {
+      onStatus: (state) => emit('status', { state }),
+      onPartial: (text) => {
+        emit('partial', { text })
+        resetInactivityTimer()
+      },
+      onResult: (text) => {
+        emit('result', { text })
+        resetInactivityTimer()
+      },
+      onError: (error) => emit('error', { message: error.message })
+    }
+  })
+
+  await speechEngine.init()
 }
 
 async function ensureWorklet() {
@@ -52,28 +67,6 @@ async function ensureWorklet() {
   const workletUrl = chrome.runtime.getURL('worklet/vosk-audio-worklet.js')
   await audioContext.audioWorklet.addModule(workletUrl)
   workletReady = true
-}
-
-function setupRecognizer() {
-  if (!model) throw new Error('Vosk model not loaded')
-
-  recognizer = new model.KaldiRecognizer(SAMPLE_RATE)
-
-  recognizer.on('partialresult', (message) => {
-    const partial = message && message.result && message.result.partial
-    if (partial) {
-      emit('partial', { text: partial })
-      resetInactivityTimer()
-    }
-  })
-
-  recognizer.on('result', (message) => {
-    const text = message && message.result && message.result.text
-    if (text) {
-      emit('result', { text })
-      resetInactivityTimer()
-    }
-  })
 }
 
 // ── Start / stop ───────────────────────────────────────────────────────────────
@@ -86,8 +79,7 @@ async function start() {
     throw new Error('Microphone access not available.')
   }
 
-  await ensureModel()
-  setupRecognizer()
+  await ensureSpeechEngine()
 
   emit('status', { state: 'requesting_mic' })
   mediaStream = await navigator.mediaDevices.getUserMedia({
@@ -113,15 +105,13 @@ async function start() {
   })
 
   workletNode.port.onmessage = (event) => {
-    if (!recognizer) return
+    if (!speechEngine) return
 
     const chunk = event.data
     if (!chunk || !chunk.length) return
 
     try {
-      const audioBuffer = audioContext.createBuffer(1, chunk.length, audioContext.sampleRate)
-      audioBuffer.copyToChannel(chunk, 0)
-      recognizer.acceptWaveform(audioBuffer)
+      speechEngine.acceptChunk(audioContext, chunk)
     } catch (e) {
       emit('error', { message: e.message })
       stop()
@@ -148,6 +138,7 @@ function stop() {
   try { if (workletNode) { workletNode.port.onmessage = null; workletNode.disconnect() } } catch { /* ignore */ }
   try { if (sourceNode) sourceNode.disconnect() } catch { /* ignore */ }
   try { if (silenceGainNode) silenceGainNode.disconnect() } catch { /* ignore */ }
+  try { if (speechEngine) speechEngine.dispose() } catch { /* ignore */ }
   try { if (audioContext) audioContext.close() } catch { /* ignore */ }
   try { if (mediaStream) mediaStream.getTracks().forEach(t => t.stop()) } catch { /* ignore */ }
 
@@ -156,7 +147,7 @@ function stop() {
   sourceNode = null
   audioContext = null
   mediaStream = null
-  recognizer = null
+  speechEngine = null
   workletReady = false
 
   if (inactivityTimer) {
